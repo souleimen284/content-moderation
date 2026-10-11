@@ -1,0 +1,69 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Python environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Node.js dependencies and frontend build output
+frontend/node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime output and local application data
+logs/
+*.log
+*.out
+*.err
+train_log*.txt
+err.log
+eror.txt
+pytest_out.txt
+*.sqlite
+*.sqlite3
+*.db
+
+# Generated datasets and local training data
+data/*.csv
+data/retraining/
+
+# Model checkpoints and downloaded model weights
+models/
+
+# Generated reports and LaTeX build files
+report/build/
+report/*.aux
+report/*.bbl
+report/*.blg
+report/*.fdb_latexmk
+report/*.fls
+report/*.lof
+report/*.log
+report/*.lot
+report/*.out
+report/*.pdf
+report/*.toc
+
+# Local notebooks and editor metadata
+.ipynb_checkpoints/
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

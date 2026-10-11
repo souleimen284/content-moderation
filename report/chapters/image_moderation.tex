@@ -1,0 +1,53 @@
+% =============================================================================
+% Chapitre 6 : Modération d'images
+% =============================================================================
+\chapter{Modération d'images}
+\label{ch:image_moderation}
+
+Ce chapitre décrit le composant de modération d'images, qui combine classification zéro-shot par CLIP et détection NudeNet pour noter les images sur cinq catégories : \texttt{nsfw} (contenu sexuellement explicite), \texttt{violence} (violence physique graphique), \texttt{weapons} (armes visibles), \texttt{hate\_symbols} (imagerie extrémiste) et \texttt{graphic\_content} (gore, sang, blessures choquantes).
+
+\section{Modes opérationnels}
+
+Le système supporte trois modes, configurés via \texttt{image\_model\_provider} :
+\begin{enumerate}[nosep]
+  \item \textbf{CLIP zéro-shot} : OpenCLIP (ViT-L/14) avec ensembliste de prompts.
+  \item \textbf{NudeNet} : NudeNet v3 pour la détection supervisée de parties du corps NSFW.
+  \item \textbf{Ensemble} (défaut) : NudeNet comme détecteur NSFW principal, CLIP comme signal secondaire pour les catégories non-NSFW, avec un poids CLIP configurable (\texttt{image\_clip\_weight}, défaut 0,15) volontairement bas car la pseudo-probabilité CLIP est mêlée vers le neutre avant routage.
+\end{enumerate}
+
+\section{Classification zéro-shot par CLIP}
+
+L'approche principale utilise CLIP~\cite{radford2021learning} en configuration zéro-shot avec ensembliste de prompts (équation~\ref{eq:prompt_ensemble}). L'image est prétraitée (redimensionnement, normalisation) puis encodée en un vecteur $\mathbf{v}_I$ normalisé ; les ensembles de prompts sont encodés une seule fois au démarrage et mis en cache, si bien que seule l'embedding de l'image doit être calculé par requête.
+
+La configuration des prompts (\texttt{configs/model\_config.yaml}) comprend : \textbf{prompts NSFW} (8 phrases, ex. « a sexually explicit image ») ; \textbf{prompts SAFE} (8 phrases) ; \textbf{prompts d'atténuation des faux positifs} (10 phrases décrivant des zones de confusion connues de CLIP, comme une personne en maillot de bain à la plage ou une photo de fitness, qui renforcent le score SAFE) ; et des \textbf{paires de prompts positifs/négatifs} par catégorie.
+
+Le score NSFW est calculé par softmax sur les similarités cosinus moyennées vers les ensembles NSFW et SAFE :
+
+\begin{equation}
+s_{\text{NSFW}} = \frac{\exp(\tau \cdot \bar{c}_{\text{NSFW}})}{\exp(\tau \cdot \bar{c}_{\text{NSFW}}) + \exp(\tau \cdot \bar{c}_{\text{SAFE}})}
+\label{eq:nsfw_score}
+\end{equation}
+
+où $\bar{c}_{\text{NSFW}}$ et $\bar{c}_{\text{SAFE}}$ sont les similarités cosinus moyennées et $\tau$ l'échelle de logits CLIP. Cette valeur est une \emph{pseudo-probabilité} dans $[0, 1]$ : elle dépend de l'échelle des similarités cosinus et ne doit pas être interprétée comme une probabilité calibrée.
+
+\section{Routage à trois voies}
+
+La pseudo-probabilité NSFW est mappée à une décision à trois voies par seuils configurables :
+
+\begin{equation}
+\text{décision}(s) = \begin{cases}
+\text{SAFE} & \text{si } s < \theta_{\text{safe}} \;(0{,}30) \\
+\text{REVIEW} & \text{si } \theta_{\text{safe}} \leq s \leq \theta_{\text{NSFW}} \;(0{,}70) \\
+\text{NSFW} & \text{si } s > \theta_{\text{NSFW}}
+\end{cases}
+\end{equation}
+
+Les seuils par défaut sont des points de départ conservateurs, à calibrer sur un jeu de validation d'images réelles pour une mise en production.
+
+\section{Intégration NudeNet}
+
+NudeNet v3~\cite{nudenet2023} détecte les parties du corps exposées (organes génitaux, seins, fesses) et attribue des scores de risque pondérés par catégorie : 1,00 pour les organes génitaux et l'anus exposés, 0,85 pour les seins féminins exposés, 0,75 pour les fesses exposées. Le score NSFW final est le maximum des scores de risque pondérés sur les catégories détectées, borné à $[0, 1]$.
+
+\section{Sonde linéaire (amélioration supervisée)}
+
+Le modèle image peut évoluer du zéro-shot vers une sonde linéaire entraînée lorsque suffisamment de données validées par les modérateurs s'accumulent. Le script \texttt{scripts/train\_image\_model.py} exporte les requêtes image relues depuis la base, gèle l'encodeur d'images CLIP pour extraire des embeddings figés, entraîne un \texttt{OneVsRestClassifier(LogisticRegression)} sur ces embeddings, puis persiste le classifieur dans \texttt{linear\_probe.joblib}. À l'inférence, une sonde entraînée a priorité sur le zéro-shot : c'est la voie d'amélioration de la précision de la modération d'images à mesure que les données humaines s'accumulent.

@@ -1,0 +1,13 @@
+% =============================================================================
+% Résumé
+% =============================================================================
+\chapter*{Résumé}
+\addcontentsline{toc}{chapter}{Résumé}
+
+Les plateformes en ligne font face à un défi permanent : modérer les contenus générés par les utilisateurs à grande échelle. La modération manuelle ne passe pas à l'échelle, tandis que les systèmes entièrement automatiques risquent de mal classer les contenus ambigus, avec des faux positifs coûteux ou des violations manquées. Ce rapport présente la conception et la réalisation d'un pipeline de modération de contenu par IA, de qualité production, qui répond à ces deux défis grâce à une architecture de routage à trois niveaux fondée sur la confiance.
+
+Le système classe les contenus selon deux modalités. Pour le texte, un encodeur BERT affiné effectue une classification multi-label sur trois catégories---\emph{toxique}, \emph{spam} et \emph{haine}---avec une perte d'entropie croisée binaire masquée qui gère les données d'entraînement partiellement étiquetées issues de sources hétérogènes. Pour les images, un système de classification zéro-shot fondé sur CLIP avec ensembliste de prompts note cinq catégories de contenu, complété par la détection NudeNet en mode ensemble. Les deux modalités alimentent une politique de routage à trois niveaux configurable : résolution automatique (confiance élevée), file d'attente des modérateurs (confiance moyenne) et cas incertains nécessitant une revue manuelle.
+
+Le pipeline s'appuie sur une base de données PostgreSQL avec journal d'audit complet, exposée via une API REST FastAPI, et déployée comme une pile Docker Compose de six services coordonnés. Un tableau de bord Streamlit offre une visibilité opérationnelle en temps réel. Un pipeline de réentraînement hebdomadaire fusionne les décisions des modérateurs dans les données d'entraînement, réentraîne les modèles et ne promeut les nouveaux checkpoints que s'ils améliorent mesurablement le score F1 macro.
+
+Ce rapport détaille l'architecture complète du système, les fondements mathématiques de la classification multi-label et du routage par confiance, la méthodologie de construction des jeux de données, les procédures d'entraînement et d'évaluation, ainsi que le flux de travail humain-dans-la-boucle. Les limites et perspectives---apprentissage actif, support multilingue, calibration des probabilités---sont également discutées.

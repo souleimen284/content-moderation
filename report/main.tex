@@ -1,0 +1,194 @@
+% =============================================================================
+% Content Moderation Pipeline — Rapport académique (français)
+% =============================================================================
+\documentclass[12pt,a4paper,twoside,openany]{report}
+
+% \ Encoding & fonts \
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+% \ Language \
+\usepackage[french]{babel}
+
+% \ Layout \
+\usepackage[
+  top=22mm,
+  bottom=22mm,
+  left=25mm,
+  right=20mm,
+  headheight=14pt
+]{geometry}
+\usepackage{setspace}
+\singlespacing
+
+% \ Headers / Footers \
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\nouppercase{\leftmark}}
+\fancyhead[RO]{\small\nouppercase{\rightmark}}
+\fancyfoot[CE,CO]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% \ Graphics \
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{float}
+
+% \ Tables \
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{array}
+
+% \ Math \
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+% \ Code \
+\usepackage{listings}
+\usepackage{xcolor}
+\definecolor{codebg}{gray}{0.96}
+\definecolor{codegreen}{rgb}{0,0.5,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.13,0.29,0.53}
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{codeblue}\bfseries,
+  commentstyle=\color{codegreen},
+  stringstyle=\color{codepurple},
+  breaklines=true,
+  breakatwhitespace=true,
+  showstringspaces=false,
+  numbers=left,
+  numberstyle=\tiny\color{codegray},
+  numbersep=8pt,
+  frame=single,
+  xleftmargin=2em,
+  xrightmargin=1em,
+  aboveskip=1em,
+  belowskip=1em,
+  captionpos=b,
+  literate={:}{{:}}1 {;}{{;}}1 {!}{{!}}1 {?}{{?}}1
+}
+
+% \ TikZ \
+\usepackage{tikz}
+\usetikzlibrary{
+  arrows.meta,
+  positioning,
+  shapes.geometric,
+  shapes.misc,
+  fit,
+  calc,
+  backgrounds,
+  decorations.pathmorphing,
+  matrix,
+  chains,
+  babel
+}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+% \ Hyperlinks \
+\usepackage[
+  colorlinks=true,
+  linkcolor=codeblue,
+  citecolor=codeblue,
+  urlcolor=codeblue
+]{hyperref}
+
+% \ Citations \
+\usepackage[numbers,sort&compress]{natbib}
+
+% \ Caption / cross-refs \
+\usepackage{caption}
+\captionsetup{
+  font=small,
+  labelfont=bf,
+  labelsep=period,
+  margin=1cm
+}
+\usepackage{subcaption}
+
+% \ Lists \
+\usepackage{enumitem}
+
+% \ Compact section spacing \
+\makeatletter
+\renewcommand{\section}{\@startsection{section}{1}{\z@}%
+  {-2.2ex plus -1ex minus -.2ex}{1.4ex plus .2ex}{\normalfont\Large\bfseries}}
+\renewcommand{\subsection}{\@startsection{subsection}{2}{\z@}%
+  {-1.8ex plus -1ex minus -.2ex}{1.2ex plus .2ex}{\normalfont\large\bfseries}}
+\makeatother
+
+% \ Glossary-style acronyms \
+\usepackage{acronym}
+
+% \ ER diagram helpers (bold primary keys, colored foreign keys) \
+\newcommand{\pk}[1]{\textbf{#1}}
+\newcommand{\fk}[1]{\textcolor{purple!70}{#1}}
+
+% \ Misc \
+\usepackage{csquotes}
+\usepackage{microtype}
+
+% \ Columns \
+\usepackage{multicol}
+
+% \ Paragraph formatting \
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+
+% \ Compact float & display spacing \
+\setlength{\floatsep}{10pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{12pt plus 2pt minus 2pt}
+\setlength{\intextsep}{10pt plus 2pt minus 2pt}
+\AtBeginDocument{%
+  \setlength{\abovedisplayskip}{6pt plus 2pt minus 2pt}%
+  \setlength{\belowdisplayskip}{6pt plus 2pt minus 2pt}%
+  \setlength{\abovedisplayshortskip}{4pt plus 2pt minus 2pt}%
+  \setlength{\belowdisplayshortskip}{4pt plus 2pt minus 2pt}%
+}
+
+% \ Ensure no widows/orphans \
+\widowpenalty=10000
+\clubpenalty=10000
+
+% =============================================================================
+\begin{document}
+
+% \ Title Page \
+\input{chapters/titlepage}
+
+% \ Abstract \
+\input{chapters/abstract}
+
+% \ Table of Contents \
+\setcounter{tocdepth}{1}
+\tableofcontents
+
+% \ Main Chapters \
+\setcounter{chapter}{0}
+
+\input{chapters/introduction}
+\input{chapters/state_of_art}
+\input{chapters/requirements}
+\input{chapters/architecture}
+\input{chapters/text_moderation}
+\input{chapters/image_moderation}
+\input{chapters/implementation}
+\input{chapters/experiments}
+\input{chapters/results}
+\input{chapters/limitations}
+\input{chapters/conclusion}
+
+% \ Bibliography \
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

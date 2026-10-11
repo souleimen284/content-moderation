@@ -1,0 +1,24 @@
+[project]
+name = "content-moderation-pipeline"
+version = "0.1.0"
+description = "Production-grade AI content moderation system (text + image) with human-in-the-loop review and weekly retraining."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+python_files = ["test_*.py"]
+addopts = "-ra -q"
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

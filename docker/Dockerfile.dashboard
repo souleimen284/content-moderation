@@ -1,0 +1,40 @@
+# =============================================================================
+# Content Moderation Pipeline — Streamlit dashboard image
+# =============================================================================
+FROM python:3.12-slim AS base
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev gcc curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip first — older versions (e.g. 25.x) fail to resolve the regex
+# dependency that transformers requires, producing "No matching distribution found".
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+COPY requirements.txt .
+
+# Install CPU-only PyTorch first (~150MB vs 3GB for CUDA) so the build
+# finishes in reasonable time even on slower connections.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.5.1 torchvision==0.20.1
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
+COPY dashboard/ ./dashboard/
+COPY configs/ ./configs/
+
+RUN mkdir -p models logs data/uploads
+
+EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+CMD ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]

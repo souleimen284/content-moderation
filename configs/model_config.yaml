@@ -1,0 +1,150 @@
+# =============================================================================
+# Model configuration (non-secret, version-controlled).
+# Values here are defaults consumed by app/ml/* at load time; environment
+# variables in .env override anything security- or deployment-sensitive
+# (paths, device, thresholds). This file governs training/architecture
+# hyperparameters that should be reviewed via PR rather than env vars.
+# =============================================================================
+
+text_model:
+  base_model: "bert-base-uncased"
+  problem_type: "multi_label_classification"
+  labels:
+    - toxic
+    - spam
+    - hate
+  max_length: 256
+  training:
+    batch_size: 16
+    learning_rate: 2.0e-5
+    num_epochs: 4
+    weight_decay: 0.01
+    warmup_ratio: 0.06
+    early_stopping_patience: 2
+
+image_model:
+  architecture: "ViT-L-14"
+  pretrained: "openai"
+  provider: "ensemble"
+  labels:
+    - nsfw
+    - violence
+    - weapons
+    - hate_symbols
+    - graphic_content
+  # Zero-shot prompt templates used to score each label with CLIP
+  prompt_template: "a photo containing {label}"
+  negative_prompt_template: "a safe photo with no {label}"
+  # Pairwise CLIP scores are not calibrated probabilities; use a conservative
+  # cutoff so ordinary images are not flagged by weak prompt matches.
+  label_decision_cutoff: 0.8
+  safe_threshold: 0.35
+  nsfw_threshold: 0.75
+
+  # --- Prompt ensembling ---
+  # NSFW prompts: multiple descriptive phrases for explicit content
+  nsfw_prompts:
+    - "a sexually explicit image"
+    - "a pornographic image"
+    - "an image containing explicit sexual content"
+    - "an image showing explicit nudity in a sexual context"
+    - "an image showing sexual activity"
+    - "an adult image with explicit sexual content"
+    - "an image depicting hardcore pornography"
+    - "a photograph of explicit adult content"
+
+  # SAFE prompts: multiple descriptive phrases for normal content
+  safe_prompts:
+    - "a normal safe-for-work photograph"
+    - "a non-explicit photograph"
+    - "a family-friendly photograph"
+    - "an ordinary photograph without nudity"
+    - "a safe-for-work image"
+    - "a normal photograph with no explicit sexual content"
+    - "a wholesome photograph appropriate for all audiences"
+    - "a clean, appropriate photograph"
+
+  # False-positive mitigation: prompts describing common CLIP confusion areas
+  # These boost the SAFE score when the image matches these contexts
+  fp_mitigation_prompts:
+    - "a person wearing a swimsuit at a beach"
+    - "a fitness photograph of someone exercising"
+    - "a normal medical photograph in a clinical setting"
+    - "a fashion photograph showing clothing"
+    - "an artistic photograph or painting"
+    - "a normal portrait of a person"
+    - "a person at a swimming pool wearing swimwear"
+    - "a yoga photograph showing athletic poses"
+    - "a figure drawing or art class sketch"
+    - "a beach vacation photograph"
+
+  use_fp_mitigation: true
+
+  # Per-category prompt ensembles
+  category_prompts:
+    nsfw:
+      positive:
+        - "a sexually explicit image"
+        - "a pornographic image"
+        - "an image containing explicit sexual content"
+        - "an image showing explicit nudity in a sexual context"
+        - "an image showing sexual activity"
+      negative:
+        - "a normal safe-for-work photograph"
+        - "a non-explicit photograph"
+        - "a family-friendly photograph"
+    violence:
+      positive:
+        - "a photograph depicting physical violence"
+        - "an image showing someone being harmed or attacked"
+        - "a violent scene with fighting or assault"
+        - "a photograph showing graphic violence or injury"
+      negative:
+        - "a peaceful photograph"
+        - "a calm scene with no violence"
+        - "a normal photograph without any aggression"
+    weapons:
+      positive:
+        - "a photograph showing firearms or weapons"
+        - "an image containing guns, knives, or other weapons"
+        - "a threatening image with visible weapons"
+        - "a photograph of someone holding a weapon"
+      negative:
+        - "a photograph without any weapons"
+        - "a safe scene with no weapons visible"
+        - "a normal photograph of everyday objects"
+    hate_symbols:
+      positive:
+        - "an image containing hate symbols or extremist imagery"
+        - "a photograph with nazi symbols or hate group imagery"
+        - "an image displaying racist or hateful symbols"
+      negative:
+        - "a photograph without any hate symbols"
+        - "a normal photograph with neutral imagery"
+        - "a safe image with no extremist content"
+    graphic_content:
+      positive:
+        - "a photograph showing graphic or disturbing content"
+        - "an image depicting gore or severe injury"
+        - "a disturbing photograph with graphic visual content"
+        - "an image showing blood and injury"
+      negative:
+        - "a photograph without any graphic content"
+        - "a safe image with nothing disturbing"
+        - "a normal clean photograph"
+
+  # --- Three-way routing thresholds ---
+  # NSFW pseudo-probability below this → SAFE
+  safe_threshold: 0.30
+  # NSFW pseudo-probability above this → NSFW
+  # Between safe_threshold and nsfw_threshold → REVIEW
+  nsfw_threshold: 0.70
+
+routing:
+  auto_decision_threshold: 0.95
+  queue_threshold: 0.70
+
+retraining:
+  min_new_samples: 100
+  eval_split: 0.15
+  metric_for_best_model: "f1_macro"

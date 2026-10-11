@@ -1,0 +1,57 @@
+% =============================================================================
+% Chapitre 7 : Implémentation
+% =============================================================================
+\chapter{Implémentation}
+\label{ch:implementation}
+
+Ce chapitre présente les choix d'implémentation clés, l'organisation du code et les détails techniques notables du pipeline.
+
+\section{Pile technologique}
+
+\begin{table}[H]
+\centering
+\caption{Pile technologique.}
+\label{tab:tech_stack}
+\begin{tabularx}{\textwidth}{lX}
+\toprule
+\textbf{Couche} & \textbf{Technologie} \\
+\midrule
+Backend & FastAPI 0.115.6 (asynchrone, typé, auto-documenté) \\
+ORM / Base & SQLAlchemy 2.0.36 + PostgreSQL 16 (migrations Alembic) \\
+ML texte & PyTorch 2.5.1 + Hugging Face Transformers 4.47.1 \\
+ML image & OpenCLIP 2.29.0 + NudeNet 3.4.2 \\
+Frontend & React 19.2.8 + Vite 8.2.1 + Tailwind CSS 3.4.19 \\
+Tableau de bord & Streamlit 1.41.1 + Plotly 5.24.1 \\
+Suivi d'expériences & MLflow 2.19.0 \\
+Conteneurisation & Docker Compose (6 services) \\
+Tests & pytest 8.3.4 + pytest-cov + pytest-asyncio \\
+Qualité & Black 24.10.0 + Ruff 0.8.4 + mypy 1.14.0 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Structure du projet}
+
+Le code suit une structure en couches reflétant l'architecture du chapitre~\ref{ch:architecture}. Le paquet \texttt{app/} est organisé par responsabilité : \texttt{app/api/} (routes FastAPI et injection de dépendances), \texttt{app/ml/} (chargement des modèles, inférence, métriques), \texttt{app/services/} (logique métier : routage, file de modération, registre de modèles, analytique), \texttt{app/schemas/} (modèles Pydantic du contrat d'API), \texttt{app/db/} (modèles ORM et sessions), \texttt{app/core/} (configuration et logging) et \texttt{app/utils/} (stockage des images téléversées).
+
+\section{Choix d'implémentation clés}
+
+\textbf{Singletons de modèles.} Les modèles texte et image sont chargés une fois par processus et injectés via les dépendances FastAPI, évitant le coût de recharger BERT (110M paramètres) ou ViT-L/14 ($\sim$400M) à chaque requête. La fonction \texttt{reload\_text\_moderation\_model()} permet au pipeline de réentraînement de recharger à chaud un nouveau checkpoint sans redémarrer le serveur.
+
+\textbf{Padding dynamique.} Le jeu de données pré-tokenise les textes sans padding, et un \texttt{collate\_fn} personnalised aligne les séquences sur la plus longue de chaque lot. Cela évite de gaspiller du calcul sur les textes courts (particulièrement efficace pour le jeu SMS dont les messages moyennent $\sim$70 caractères).
+
+\textbf{Routage par confiance.} Le \texttt{ConfidenceRouter} sépare la politique de routage (que faire à chaque niveau de confiance) de son déclenchement (quel niveau s'applique). L'acuité principale : un contenu propre (aucune étiquette signalée) est auto-approuvé quelle que soit la confiance brute, car le score maximum sur les catégories de modération est naturellement bas pour un contenu sain. Sans cette règle, la majorité du trafic tomberait dans le niveau incertain.
+
+\textbf{Routage multi-modalité.} Quand un contenu inclut texte et image, la méthode \texttt{route\_content} combine les sous-décisions selon une politique « le plus sévère gagne » : l'action combinée est la moins sévère des actions par modalité, garantissant qu'un contenu n'est jamais auto-approuvé si l'une de ses composantes est signalée.
+
+\textbf{Journal d'audit.} Toute opération modifiant l'état écrit une ligne \texttt{AuditLog} avec le type d'événement, l'acteur (« system » pour les événements automatiques, ID utilisateur sinon) et un charge utile JSON optionnel, créant une piste append-only permettant la reconstruction complète de l'historique de toute requête.
+
+\textbf{Configuration pilotée par l'environnement.} La classe \texttt{Settings} (Pydantic \texttt{BaseSettings}) lie automatiquement les variables d'environnement, avec \texttt{lru\_cache} pour une lecture unique par processus et des validateurs (ex. \texttt{queue\_threshold} ne doit jamais dépasser \texttt{auto\_decision\_threshold}).
+
+\section{Déploiement}
+
+La pile Docker Compose (figure~\ref{fig:deployment}) intègre plusieurs pratiques de fiabilité : vérifications de santé (\texttt{pg\_isready} pour PostgreSQL, \texttt{/health} pour l'API) ; ordonnancement des dépendances (\texttt{condition: service\_healthy}) ; volumes partagés pour les checkpoints et fichiers téléversés ; réseau pont dédié (\texttt{moderation-net}) ; et ancre \texttt{x-app-env} dans \texttt{docker-compose.yml} pour factoriser le bloc d'environnement.
+
+\section{Tests}
+
+La suite de tests (11 modules) couvre la logique de routage (scores de confiance et combinaisons d'étiquettes variées), le calcul de métriques multi-label, les opérations base de données (création, requêtes, audit), le comportement des endpoints API, le chargement et la prédiction des modèles, et le pipeline de réentraînement. Les tests utilisent des bases SQLite en mémoire (\texttt{DATABASE\_URL=sqlite:///:memory:}) et des singletons de modèles moqués afin d'éviter de charger les grands modèles ML pendant l'exécution.

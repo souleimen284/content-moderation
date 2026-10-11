@@ -1,0 +1,60 @@
+% =============================================================================
+% Chapitre 9 : Résultats et discussion
+% =============================================================================
+\chapter{Résultats et discussion}
+\label{ch:results}
+
+Ce chapitre présente les résultats expérimentaux, discute leurs implications et analyse les caractéristiques de performance du système.
+
+\section{Résultats de la modération de texte}
+
+L'expérience d'entraînement texte la plus substantielle a porté sur 6\,138 lignes du jeu \texttt{text\_moderation\_train\_subset.csv}. Les métriques (précision/rappel/F1 : toxique 0,32/0,83/0,46 ; haine 0,50/0,22/0,31 ; spam 0/0/0) coïncident avec le tableau~\ref{tab:subset_results} du chapitre~\ref{ch:experiments} et s'interprètent comme suit.
+
+\textbf{Détection toxique} : le rappel élevé (0,83) et la précision faible (0,32) indiquent un modèle conservateur, qui capture la plupart des contenus toxiques mais signale aussi de nombreux messages sains. Ce comportement est acceptable pour un système de modération où manquer un contenu toxique (faux négatif) coûte généralement plus cher qu'examiner un contenu sain (faux positif) ; en revanche, la faible précision signifie que la file des modérateurs recevrait un trafic substantiel de faux positifs.
+
+\textbf{Détection haine} : la précision modérée (0,50) et le rappel faible (0,22) suggèrent une difficulté à identifier le discours haineux de façon cohérente, probablement dû au volume limité de données---seules les colonnes \texttt{identity\_hate} et \texttt{threat} du jeu Jigsaw alimentent cette catégorie.
+
+\textbf{Détection spam} : le F1 nul s'explique par le déséquilibre extrême de l'ensemble d'évaluation (un seul échantillon spam sur 921). Le jeu SMS est petit (5\,500 lignes) et son vocabulaire propre aux SMS généralise mal à d'autres domaines.
+
+Ces résultats doivent être interprétés avec prudence : 6\,138 lignes (4~\% du jeu complet), 2 époques, entraînement CPU. Un entraînement complet est attendu nettement meilleur.
+
+\section{Résultats de la modération d'images}
+
+Le modèle image fonctionne en zéro-shot avec les poids pré-entraînés de CLIP ; son comportement se caractérise par son architecture plutôt que par des métriques quantitatives : ensembliste de 8 prompts NSFW + 8 prompts SAFE + 10 prompts d'atténuation des faux positifs, plus des paires de prompts par catégorie ; routage à trois voies avec $\theta_{\text{safe}} = 0{,}30$ et $\theta_{\text{NSFW}} = 0{,}70$ ; mode ensemble combinant NudeNet et CLIP. L'approche zéro-shot est immédiatement déployable car elle n'exige aucune donnée étiquetée, mais sa précision reste limitée par la compréhension visuelle générale de CLIP et la qualité des prompts manuels ; une sonde linéaire supervisée entraînée sur les données validées par les modérateurs devrait l'améliorer.
+
+\section{Analyse du routage}
+
+\begin{table}[H]
+\centering
+\caption{Comportement des niveaux de routage et répartition attendue du trafic.}
+\label{tab:routing_tiers}
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{Niveau} & \textbf{Condition} & \textbf{Comportement} \\
+\midrule
+AUTO & Aucune étiquette signalée OU confiance $>$ 0,95 & Auto-approuver (propre) ou auto-rejeter (violation à haute confiance) \\
+QUEUE & 0,70 $\leq$ confiance $\leq$ 0,95, signalé & Envoi en file des modérateurs avec détails de prédiction \\
+UNCERTAIN & Confiance $<$ 0,70, signalé & Marqué incertain, revue manuelle requise \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Le choix de conception critique est que \emph{le contenu non signalé est toujours auto-approuvé, quelle que soit la confiance brute}. Sans cette règle, un contenu sain---dont le score maximum est naturellement bas quand toutes les étiquettes sont proches de zéro---tomberait massivement dans le niveau UNCERTAIN. L'implémentation évite cela en testant d'abord la propriété \texttt{is\_flagged}.
+
+\section{Analyse du pipeline de réentraînement}
+
+Le pipeline hebdomadaire (\texttt{retrain.py}) implémente une boucle d'apprentissage fermée : \textbf{export} des décisions texte validées avec étiquettes corrigées, \textbf{fusion} dans le CSV d'entraînement (les corrections des modérateurs ont priorité sur les doublons), \textbf{entraînement} sur le jeu fusionné, \textbf{évaluation} contre le modèle actif en F1 macro, \textbf{promotion} seulement si strictement meilleur, puis \textbf{rechargement à chaud} du singleton en processus sans redémarrer l'API. Le seuil \texttt{RETRAIN\_MIN\_NEW\_SAMPLES} (défaut 100) avertit en cas de données nouvelles insuffisantes.
+
+\section{Déploiement et exploitation}
+
+La pile Docker Compose privilégie la simplicité opérationnelle : déploiement en une commande (\texttt{docker compose up --build -d}) ; réentraînement automatique au démarrage quand \texttt{RETRAIN\_ON\_STARTUP=true} (défaut) si aucun checkpoint n'existe ; vérifications de santé garantissant la satisfaction des dépendances ; volumes partagés donnant accès aux checkpoints sans reconstruire les images.
+
+\section{Limites des résultats actuels}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Entraînement sur sous-ensemble uniquement} : aucune formation complète sur les 164K lignes ; les métriques rapportées valident le pipeline plutôt que la performance en production.
+  \item \textbf{Pas de métriques image} : le modèle image n'a pas été évalué sur un ensemble de test étiqueté (mode zéro-shot sans données supervisées).
+  \item \textbf{Entraînement CPU} : les contraintes de temps ont limité le nombre d'époques et la taille des sous-ensembles.
+  \item \textbf{Pas de trafic réel} : latence, débit et taux d'erreurs à l'échelle ne sont pas encore mesurés.
+  \item \textbf{Évaluation spam limitée} : données trop rares pour conclure sur la détection de spam.
+\end{enumerate}

@@ -1,0 +1,48 @@
+% =============================================================================
+% Chapitre 11 : Conclusion
+% =============================================================================
+\chapter{Conclusion}
+\label{ch:conclusion}
+
+Ce rapport a présenté la conception, la réalisation et l'évaluation du Pipeline de Modération de Contenu---un système de modération par IA, de qualité production, pour les contenus textuels et image générés par les utilisateurs. Le système traite la tension fondamentale entre automatisation (échelle et cohérence) et jugement humain (nuance et précision) par une architecture intégrée combinant apprentissage automatique, routage par confiance, revue humain-dans-la-boucle et réentraînement continu.
+
+\section{Bilan des contributions}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Classification multi-label de texte} : un modèle BERT évaluant simultanément trois catégories (toxique, spam, haine) via des sigmoïdes indépendantes et une BCE masquée gérant les données hétérogènes aux étiquettes incomplètes.
+  \item \textbf{Classification d'images zéro-shot} : un système CLIP avec ensembliste de prompts et atténuation des faux positifs, notant cinq catégories sans données d'entraînement étiquetées.
+  \item \textbf{Routage par confiance} : une politique à trois niveaux avec seuils configurables équilibrant taux d'automatisation et taux d'erreur.
+  \item \textbf{Flux humain-dans-la-boucle} : une file de modération complète adossée à PostgreSQL avec journal d'audit intégral, dont les corrections alimentent l'entraînement.
+  \item \textbf{Pipeline de réentraînement automatique} : fusion hebdomadaire des décisions validées et promotion conditionnelle à l'amélioration mesurable du F1 macro.
+  \item \textbf{Déploiement de production} : pile Docker Compose de six services coordonnés démontrant des pratiques d'ingénierie éprouvées.
+\end{enumerate}
+
+\section{Enseignements clés}
+
+L'évaluation expérimentale a révélé plusieurs points importants. La BCE masquée gère correctement les données hétérogènes aux étiquettes manquantes, permettant de fusionner les jeux Jigsaw et SMS Spam en un jeu d'entraînement unifié. L'entraînement sur sous-ensemble (6\,138 lignes, 2 époques) a produit des résultats limités---rappel toxique modéré (0,83) mais précision faible (0,32)---qui devraient s'améliorer substantiellement avec l'entraînement complet. Le routage par confiance partitionne correctement le contenu en niveaux actionnables, l'acuité de conception étant que le contenu non signalé doit toujours être auto-approuvé. Enfin, la politique promote-if-better du réentraînement prévient efficacement toute régression du modèle.
+
+\section{Conformité aux objectifs}
+
+\begin{table}[H]
+\centering
+\caption{Évaluation de la conformité aux objectifs du projet.}
+\label{tab:objectives}
+\begin{tabularx}{\textwidth}{lXl}
+\toprule
+\textbf{Objectif} & \textbf{Évaluation} & \textbf{Statut} \\
+\midrule
+Pipeline multi-modal & Modération texte + image implémentée & Réalisé \\
+Routage par confiance & Politique à trois niveaux, seuils configurables & Réalisé \\
+Pile de production & API, frontend, tableau de bord, Docker & Réalisé \\
+Apprentissage continu & Réentraînement hebdomadaire avec promotion & Réalisé \\
+Évaluation sur données réelles & Expériences sur sous-ensemble ; entraînement complet en attente & Partiel \\
+Identification des limites & Analyse complète des limites & Réalisé \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Conclusion générale}
+
+Le pipeline démontre qu'un système bien architecturé peut combiner les forces de la classification automatique et du jugement humain de manière évolutive, auditable et continuellement améliorée. Bien que l'implémentation actuelle ait des limites---couverture des données d'entraînement et absence d'évaluation à grande échelle notamment---l'architecture est saine et la base de code prête pour la production.
+
+L'étape suivante la plus critique est l'entraînement complet sur les 164K lignes sur matériel GPU, attendu pour améliorer substantiellement la classification. Une fois validé, le système pourra être déployé pour de réelles charges de modération, où il continuera de s'améliorer via la boucle de retour humain-dans-la-boucle. La conception modulaire---classifieur BERT, classifieur CLIP, politique de routage, pipeline de réentraînement---permet d'améliorer chaque composant indépendamment, faisant de ce pipeline un socle solide pour le développement et la recherche continus en modération automatique de contenu.

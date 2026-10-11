@@ -1,0 +1,92 @@
+% =============================================================================
+% Chapitre 2 : État de l'art
+% =============================================================================
+\chapter{État de l'art}
+\label{ch:state_of_art}
+
+Ce chapitre survey les approches existantes en modération automatique de contenu et les techniques d'apprentissage automatique qui fondent le système réalisé.
+
+\section{Approches de modération}
+
+Les stratégies de modération s'étendent du entièrement manuel à l'entièrement automatique. Le système de Facebook décrit par Gillespie~\cite{gillespie2018curation} combine signalisation automatique et revue humaine, avec plus de 15\,000 relecteurs en 2019. Twitter (devenu X) emploie des classifieurs automatiques depuis 2016~\cite{chandrasekharan2017cross}, et YouTube traite des millions de vidéos par jour avec des systèmes hybrides~\cite{youtube2023moderation}.
+
+L'enseignement clé est qu'aucune approche unique ne suffit : l'automatique apporte l'échelle et la cohérence mais manque de nuance ; l'humain apporte le jugement mais ne passe pas à l'échelle. Les systèmes modernes adoptent donc des architectures hybrides qui routent les contenus selon la confiance du modèle~\cite{elzayn2019fair}.
+
+\section{Classification de texte}
+
+\subsection{Des modèles classiques aux transformers}
+
+Les premiers classifieurs reposaient sur des caractéristiques sac-de-mots avec SVM ou régression logistique~\cite{warner2012detecting}, puis les réseaux de convolution~\cite{kim2014cnn} et récurrents (LSTM~\cite{hochreiter1997long}, GRU~\cite{cho2014learning}) ont permis de capturer les dépendances séquentielles. L'introduction de BERT~\cite{devlin2019bert} a changé la donne : son mécanisme d'attention bidirectionnel capture le contexte des deux côtés de chaque token, et son affinage sur des tâches de classification surpasse systématiquement les architectures dédiées.
+
+Pour la classification multi-label---où chaque entrée peut appartenir à plusieurs catégories---l'approche standard utilise des sorties sigmoïdes indépendantes plutôt qu'un softmax partagé : $p_k = \sigma(w_k^T h + b_k)$ donne la probabilité que l'étiquette $k$ soit présente, et la perte est une entropie croisée binaire (BCE) sommée sur les étiquettes. L'API Perspective de Google/Jigsaw~\cite{perspective2023api} représente l'état de l'art en production sur cette base architecturale.
+
+\subsection{Perte masquée pour données partiellement étiquetées}
+
+Lorsque certaines étiquettes sont inconnues pour certains exemples ($y_k = -1$), une BCE standard est inappropriée car elle traiterait les inconnues comme des négatifs. La solution est une \emph{BCE masquée} qui exclut les étiquettes inconnues du calcul :
+
+\begin{equation}
+\mathcal{L} = -\frac{1}{\sum_{i,k} m_{ik}} \sum_{i=1}^{N} \sum_{k=1}^{K} m_{ik} \left[ y_{ik} \log \sigma(z_{ik}) + (1 - y_{ik}) \log (1 - \sigma(z_{ik})) \right]
+\label{eq:masked_bce}
+\end{equation}
+
+où $m_{ik} \in \{0, 1\}$ vaut zéro quand l'étiquette est inconnue. Pour traiter le déséquilibre de classes, un poids positif par étiquette $w_k = n_k^{-} / n_k^{+}$ peut être incorporé :
+
+\begin{equation}
+\mathcal{L}_k = -\frac{1}{N_k} \sum_{i=1}^{N} m_{ik} \left[ w_k \cdot y_{ik} \log \sigma(z_{ik}) + (1 - y_{ik}) \log (1 - \sigma(z_{ik})) \right]
+\label{eq:weighted_masked_bce}
+\end{equation}
+
+\section{Classification d'images}
+
+\subsection{Modèles vision-langage}
+
+La modération d'images reposait historiquement sur le hachage perceptuel (PhotoDNA pour CSAM) et des classifieurs supervisés~\cite{mazur2015hybrid}, efficaces sur les contenus connus mais faibles face aux images nouvelles ou ambiguës. L'introduction de CLIP~\cite{radford2021learning} a ouvert un nouveau paradigme : CLIP apprend un espace d'embedding partagé images/texte par pré-entraînement contrastif sur 400 millions de paires, permettant la classification \emph{zéro-shot}—classer une image dans n'importe quelle catégorie décrite par du texte, sans données d'entraînement dédiées.
+
+Étant donné une image $I$ et $K$ prompts textuels $\{t_1, \ldots, t_K\}$, CLIP calcule :
+
+\begin{align}
+\mathbf{v}_I &= \text{CLIP\_image}(I) / \|\text{CLIP\_image}(I)\| \nonumber\\
+\mathbf{v}_{t_k} &= \text{CLIP\_text}(t_k) / \|\text{CLIP\_text}(t_k)\| \nonumber\\
+p_k &= \frac{\exp(\tau \cdot \mathbf{v}_{t_k} \cdot \mathbf{v}_I)}{\sum_{j=1}^{K} \exp(\tau \cdot \mathbf{v}_{t_j} \cdot \mathbf{v}_I)}
+\label{eq:clip_zeroshot}
+\end{align}
+
+où $\tau$ est un paramètre de température appris.
+
+\subsection{Ensembliste de prompts}
+
+Radford et al.~\cite{radford2021learning} ont montré que la précision s'améliore significativement quand plusieurs prompts sont moyennés par catégorie. Pour une catégorie $k$ avec prompts $\{t_{k,1}, \ldots, t_{k,M}\}$ :
+
+\begin{equation}
+\mathbf{v}_{k} = \frac{1}{M} \sum_{j=1}^{M} \frac{\text{CLIP\_text}(t_{k,j})}{\|\text{CLIP\_text}(t_{k,j})\|}
+\label{eq:prompt_ensemble}
+\end{equation}
+
+\section{Routage par confiance et apprentissage continu}
+
+Router les contenus selon la confiance du modèle est bien établi dans la littérature collaboration humain-IA : De et al.~\cite{de2020learning} montrent qu'un seuil de confiance équilibre taux d'automatisation et taux d'erreur. La politique à trois niveaux de ce projet suit les cadres des guidelines de modération d'OpenAI~\cite{openai2023moderation} et des opérations d'intégrité de Facebook~\cite{facebook2020integrity}.
+
+En apprentissage humain-dans-la-boucle, Tsvetkov et al.~\cite{tsvetkov2022active} démontrent que l'apprentissage actif sélectionne les exemples les plus informatifs pour la revue humaine ; ce projet implémente une variante plus simple où tout contenu relu est fusionné dans les données d'entraînement à un cycle hebdomadaire. Les enjeux de l'amélioration continue---oubli catastrophique, détection de régression, rollback~\cite{polyzotis2019managing}---sont traités par une politique \emph{promote-if-better} qui n'active une nouvelle version de modèle que si elle dépasse l'active en F1 macro.
+
+\section{Synthèse}
+
+Le tableau~\ref{tab:sota_comparison} résume le positionnement du système réalisé par rapport à l'état de l'art.
+
+\begin{table}[H]
+\centering
+\caption{Comparaison du système réalisé avec les approches existantes.}
+\label{tab:sota_comparison}
+\small
+\begin{tabularx}{\textwidth}{lXX}
+\toprule
+\textbf{Composant} & \textbf{Approche existante} & \textbf{Notre réalisation} \\
+\midrule
+Classification texte & BERT / RoBERTa multi-label & BERT-base-uncased, 3 labels, BCE masquée \\
+Classification image & CNN supervisés / CLIP & CLIP zéro-shot + ensemble NudeNet \\
+Routage & Seuil binaire & Routage de confiance à trois niveaux \\
+Réentraînement & Lots périodiques / en ligne & Pipeline hebdomadaire automatique \\
+Journal d'audit & Variable & Piste d'audit append-only complète \\
+Déploiement & Monolithe & Microservices Docker Compose \\
+\bottomrule
+\end{tabularx}
+\end{table}

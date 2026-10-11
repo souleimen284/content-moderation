@@ -1,0 +1,278 @@
+% =============================================================================
+% Chapitre 4 : Architecture du système
+% =============================================================================
+\chapter{Architecture du système}
+\label{ch:architecture}
+
+Ce chapitre présente l'architecture globale, les flux de données et les choix de conception du pipeline de modération.
+
+\section{Vue d'ensemble}
+
+Le système suit une architecture en couches avec séparation claire des responsabilités (figure~\ref{fig:architecture_overview}) : couche clients (React, Streamlit, consommateurs API), couche API FastAPI, couche ML (modèles texte/image et routeur de confiance), couche services (file de modération, registre de modèles, analytique, réentraînement) et couche données (SQLAlchemy, migrations Alembic, journal d'audit), adossée à PostgreSQL, aux checkpoints de modèles et au suivi MLflow.
+
+\begin{figure}[H]
+\centering
+\scalebox{0.8}{\begin{tikzpicture}[
+  node distance=0.6cm and 0.3cm,
+  layer/.style={
+    rectangle, rounded corners=4pt,
+    draw=gray!60, fill=gray!5,
+    minimum width=13cm, minimum height=1.2cm,
+    align=center, font=\small
+  },
+  component/.style={
+    rectangle, rounded corners=3pt,
+    draw=blue!70, fill=blue!8,
+    minimum width=2.4cm, minimum height=0.9cm,
+    align=center, font=\footnotesize
+  },
+  db/.style={
+    cylinder, cylinder uses custom fill,
+    cylinder end fill=gray!20, cylinder body fill=gray!10,
+    draw=gray!60, minimum width=1.8cm, minimum height=0.9cm,
+    align=center, font=\footnotesize, shape border rotate=90
+  },
+  arrow/.style={-{Stealth[length=2.5mm]}, thick, draw=gray!70},
+  every node/.style={font=\small}
+]
+
+% Layer 1: Client Layer
+\node[layer] (client) {
+  \textbf{Couche Clients}\\
+  \scriptsize{Frontend React (Vite) \quad|\quad Tableau de bord Streamlit \quad|\quad Clients API}
+};
+
+% Layer 2: API Layer
+\node[layer, below=of client] (api) {
+  \textbf{Couche API (FastAPI)}\\
+  \scriptsize{POST /moderate/text \quad|\quad POST /moderate/image \quad|\quad POST /moderate/content \quad|\quad GET /moderation\_queue \quad|\quad POST /review}
+};
+
+% Layer 3: ML Layer
+\node[layer, below=of api] (ml) {
+  \textbf{Couche ML}\\
+  \scriptsize{TextModerationModel (BERT) \quad|\quad ImageModerationModel (CLIP + NudeNet) \quad|\quad ConfidenceRouter}
+};
+
+% Layer 4: Services Layer
+\node[layer, below=of ml] (svc) {
+  \textbf{Couche Services}\\
+  \scriptsize{QueueService \quad|\quad ModelRegistry \quad|\quad AnalyticsService \quad|\quad RetrainPipeline}
+};
+
+% Layer 5: Data Layer
+\node[layer, below=of svc] (data) {
+  \textbf{Couche Données}\\
+  \scriptsize{SQLAlchemy ORM \quad|\quad Migrations Alembic \quad|\quad AuditLog}
+};
+
+% Database
+\node[db, below right=0.4cm and 2cm of data.south west, anchor=north] (postgres) {PostgreSQL\\16};
+
+% Model storage
+\node[component, below=0.4cm of data.south, anchor=north] (models) {Checkpoints\\de modèles};
+
+% MLflow
+\node[component, below left=0.4cm and 2cm of data.south, anchor=north] (mlflow) {Suivi\\MLflow};
+
+% Arrows
+\draw[arrow] (client) -- (api);
+\draw[arrow] (api) -- (ml);
+\draw[arrow] (ml) -- (svc);
+\draw[arrow] (svc) -- (data);
+\draw[arrow] (data) -- (postgres);
+\draw[arrow] (data) -- (models);
+\draw[arrow] (data) -- (mlflow);
+
+\end{tikzpicture}}
+\caption{Architecture haut niveau du système : pile à cinq couches et dépendances externes.}
+\label{fig:architecture_overview}
+\end{figure}
+
+\section{Architecture de déploiement}
+
+Le système est déployé comme une pile Docker Compose de six conteneurs indépendamment constructibles et redémarrables (figure~\ref{fig:deployment}).
+
+\begin{figure}[H]
+\centering
+\scalebox{0.8}{\begin{tikzpicture}[
+  node distance=0.8cm and 0.6cm,
+  svc/.style={
+    rectangle, rounded corners=5pt,
+    draw=blue!60, fill=blue!5,
+    minimum width=2.8cm, minimum height=1.6cm,
+    align=center, font=\footnotesize, thick
+  },
+  net/.style={
+    dashed, draw=gray!50, rounded corners=8pt,
+    inner sep=8pt
+  },
+  arrow/.style={-{Stealth[length=2mm]}, thick, draw=gray!60},
+  label/.style={font=\tiny, fill=white, inner sep=1pt, midway}
+]
+
+% Network boundary
+\node[net, minimum width=13cm, minimum height=8cm] (netbox) {};
+
+% PostgreSQL
+\node[svc, fill=blue!15] (postgres) at (-4.5, 2.5) {PostgreSQL\\16\\{\tiny\texttt{port: 5432}}};
+
+% MLflow
+\node[svc, fill=orange!10] (mlflow) at (0, 2.5) {MLflow\\Server\\{\tiny\texttt{port: 5000}}};
+
+% API
+\node[svc, fill=green!10] (api) at (4.5, 2.5) {Backend\\FastAPI\\{\tiny\texttt{port: 8000}}};
+
+% Frontend
+\node[svc, fill=purple!10] (frontend) at (-4.5, -1) {Frontend\\React\\{\tiny\texttt{port: 3000}}};
+
+% Dashboard
+\node[svc, fill=teal!10] (dashboard) at (0, -1) {Tableau de bord\\Streamlit\\{\tiny\texttt{port: 8501}}};
+
+% Retrain
+\node[svc, fill=red!10] (retrain) at (4.5, -1) {Planificateur\\de réentraînement\\{\tiny basé cron}};
+
+% Arrows showing dependencies
+\draw[arrow] (api) -- node[label, above] {SQL} (postgres);
+\draw[arrow] (api) -- node[label, above] {tracking} (mlflow);
+\draw[arrow] (dashboard) -- (postgres);
+\draw[arrow] (dashboard) -- (api);
+\draw[arrow] (frontend) -- (api);
+\draw[arrow] (retrain) -- (postgres);
+\draw[arrow] (retrain) -- (mlflow);
+
+% Network label
+\node[below, font=\small, gray] at (0, -3.5) {\texttt{moderation-net (bridge)}};
+
+\end{tikzpicture}}
+\caption{Architecture de déploiement Docker Compose : six conteneurs et leurs communications.}
+\label{fig:deployment}
+\end{figure}
+
+\section{Flux de données}
+
+Pour une requête de modération, le flux est identique pour les deux modalités : entrée $\to$ prédiction (BERT pour le texte avec sorties sigmoïdes ; CLIP + NudeNet pour l'image avec score NSFW) $\to$ routage par confiance (résolution automatique si le contenu est propre ou confiance élevée ; file des modérateurs si confiance moyenne ; revue manuelle sinon) $\to$ persistance PostgreSQL $\to$ réponse. Les décisions image suivent trois seuils : SAFE si score $< 0{,}30$, NSFW si score $> 0{,}70$, REVIEW entre les deux.
+
+\section{Schéma de base de données}
+
+La persistance repose sur six tables normalisées (figure~\ref{fig:er_diagram}), suivant le principe d'audit append-only : la table \texttt{audit\_logs} enregistre tout événement modifiant l'état et n'est jamais mise à jour ni supprimée.
+
+\begin{figure}[H]
+\centering
+\scalebox{0.85}{\begin{tikzpicture}[
+  entity/.style={
+    rectangle, rounded corners=4pt,
+    draw=blue!60, fill=blue!5,
+    minimum width=3cm, minimum height=0.6cm,
+    align=left, font=\scriptsize, inner sep=4pt
+  },
+  pk/.style={font=\scriptsize\bfseries},
+  fk/.style={font=\scriptsize, text=purple!70},
+  arrow/.style={-{Stealth[length=2mm]}, thick, draw=gray!50},
+  label/.style={font=\tiny, fill=white, inner sep=1pt},
+  every node/.style={font=\scriptsize}
+]
+
+% User
+\node[entity] (user) at (0, 4) {
+  \textbf{User}\\
+  \pk{id} (PK)\\
+  username, email\\
+  hashed\_password\\
+  role (enum)\\
+  is\_active
+};
+
+% ModerationRequest
+\node[entity] (request) at (5, 4) {
+  \textbf{ModerationRequest}\\
+  \pk{id} (PK)\\
+  content\_type (enum)\\
+  text\_content\\
+  image\_path\\
+  status (enum)\\
+  \fk{submitted\_by\_id (FK $\to$ users)}
+};
+
+% Prediction
+\node[entity] (prediction) at (5, 1.5) {
+  \textbf{Prediction}\\
+  \pk{id} (PK)\\
+  \fk{moderation\_request\_id (FK)}\\
+  modality (enum)\\
+  model\_version\\
+  top\_label, top\_score\\
+  label\_scores (JSON)
+};
+
+% ModeratorReview
+\node[entity] (review) at (0, 1.5) {
+  \textbf{ModeratorReview}\\
+  \pk{id} (PK)\\
+  \fk{moderation\_request\_id (FK)}\\
+  \fk{moderator\_id (FK $\to$ users)}\\
+  decision (enum)\\
+  corrected\_labels (JSON)
+};
+
+% ModelVersion
+\node[entity] (modelversion) at (-5, 1.5) {
+  \textbf{ModelVersion}\\
+  \pk{id} (PK)\\
+  model\_type (enum)\\
+  version\_tag\\
+  checkpoint\_path\\
+  metrics (JSON)\\
+  is\_active
+};
+
+% AuditLog
+\node[entity] (auditlog) at (-5, 4) {
+  \textbf{AuditLog}\\
+  \pk{id} (PK)\\
+  \fk{moderation\_request\_id (FK)}\\
+  event\_type\\
+  actor\\
+  details (JSON)
+};
+
+% Relationships
+\draw[arrow] (request) -- node[label, left, pos=0.4] {1:N} (user.east|-request.west);
+\draw[arrow] (prediction) -- node[label, right, pos=0.3] {N:1} (request);
+\draw[arrow] (review) -- node[label, left, pos=0.3] {1:1} (request.west|-review.east);
+\draw[arrow] (review) -- node[label, left, pos=0.4] {N:1} (user.west|-review.north west);
+\draw[arrow] (auditlog) -- node[label, left, pos=0.4] {N:1} (request.west|-auditlog.south);
+
+\end{tikzpicture}}
+\caption{Diagramme entité-association : les six tables cœur de la base et leurs relations.}
+\label{fig:er_diagram}
+\end{figure}
+
+\section{Conception de l'API}
+
+L'API REST suit les conventions RESTful avec des endpoints versionnés sous \texttt{/api/v1}.
+
+\begin{table}[H]
+\centering
+\caption{Endpoints de l'API REST.}
+\label{tab:api_endpoints}
+\begin{tabularx}{\textwidth}{lllX}
+\toprule
+\textbf{Méthode} & \textbf{Endpoint} & \textbf{Tag} & \textbf{Description} \\
+\midrule
+POST & \texttt{/moderate/text} & Modération & Classer un texte (3 labels) \\
+POST & \texttt{/moderate/image} & Modération & Classer une image (5 labels) \\
+POST & \texttt{/moderate/content} & Modération & Modération combinée texte + image \\
+GET & \texttt{/moderation\_queue} & RH & Lister les éléments en attente de revue \\
+POST & \texttt{/review} & RH & Soumettre une décision de modérateur \\
+GET & \texttt{/metrics} & Système & Statistiques opérationnelles agrégées \\
+GET & \texttt{/health} & Système & Sonde de vivacité/disponibilité \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Configuration et patterns de conception}
+
+Toute la configuration d'exécution est centralisée dans une classe Pydantic \texttt{Settings} (\texttt{app/core/config.py}) chargée depuis les variables d'environnement : aucun autre module ne lit \texttt{os.environ} directement, et les seuils peuvent être ajustés par déploiement sans modifier le code.
+
+Le système emploie plusieurs patterns établis : \textbf{Singleton} pour les instances de modèles ML (chargées une fois par processus, injectées par dépendances FastAPI), \textbf{Repository} pour l'accès base de données via SQLAlchemy, \textbf{injection de dépendances} pour les handlers FastAPI (moquables en test), \textbf{Pipeline} pour le flux de modération (entrée $\to$ prédiction $\to$ routage $\to$ persistance $\to$ réponse) et \textbf{Stratégie} pour les fournisseurs de modèles image (CLIP, NudeNet, ensemble) sélectionnés par configuration.

@@ -1,0 +1,69 @@
+% =============================================================================
+% Chapitre 10 : Limites et perspectives
+% =============================================================================
+\chapter{Limites et perspectives}
+\label{ch:limitations}
+
+Ce chapitre évalue honnêtement les limites actuelles du système et identifie des directions d'amélioration concrètes.
+
+\section{Limites actuelles}
+
+\subsection{Limites liées aux données}
+
+\textbf{Jeu spam réduit et hors domaine} : la SMS Spam Collection ($\sim$5\,500 lignes) est petite face au jeu de toxicité ($\sim$160K), et le vocabulaire propre aux SMS (« free », « winner », « claim ») ne transfère probablement ni au spam web, ni au spam e-mail ou réseaux sociaux. Le modèle n'a pas appris de pattern de détection de spam significatif dans les expériences sur sous-ensemble.
+
+\textbf{Couverture du discours haineux} : les étiquettes haine proviennent uniquement des colonnes \texttt{identity\_hate} et \texttt{threat} du jeu Jigsaw, captant une tranche étroite du phénomène---sans haine implicite, langage codé ni discrimination contextuelle.
+
+\textbf{Problème des étiquettes partielles} : le masquage ($y_k = -1$) est une solution pratique aux données hétérogènes, mais le modèle ne reçoit aucun signal de supervision sur les relations inter-catégories (ex. il ne peut pas apprendre qu'un message spam est rarement du discours haineux, ces étiquettes étant toujours masquées pour le jeu spam).
+
+\textbf{Pas de données image étiquetées} : le modèle image n'a jamais été évalué contre un ensemble de test étiqueté ; la précision zéro-shot de CLIP reste inconnue pour cette configuration précise de prompts et de seuils.
+
+\subsection{Limites du modèle}
+
+\textbf{Contrainte CPU} : l'entraînement de BERT sur le jeu complet sur CPU est prohibitif ($\sim$22 s par lot), forçant l'usage de petits sous-ensembles et de peu d'époques, d'où les résultats sous-optimaux du chapitre~\ref{ch:results}.
+
+\textbf{Capacité fixe} : BERT-base (110M paramètres) est limité face aux modèles plus grands (BERT-large, RoBERTa-large), et aucun pré-entraînement spécifique au domaine de la modération n'est exploité.
+
+\textbf{Scores image non calibrés} : la pseudo-probabilité NSFW de CLIP n'est pas calibrée ; les seuils (0,30, 0,70) sont heuristiques et exigent une calibration sur données de validation.
+
+\subsection{Limites du système}
+
+\textbf{Pas d'apprentissage temps réel} : le réentraînement est hebdomadaire ; les erreurs découvertes entre deux cycles ne sont pas corrigées immédiatement. \textbf{Langue unique} : \texttt{bert-base-uncased} ne supporte que l'anglais. \textbf{Pas de vidéo ni audio} : le système ne traite que texte et images. \textbf{Authentification limitée} : l'infrastructure JWT (\texttt{python-jose}, \texttt{passlib}) existe mais le middleware d'authentification n'est pas implémenté.
+
+\section{Perspectives}
+
+\textbf{Priorité haute} :
+\begin{enumerate}[nosep]
+  \item Entraînement complet sur les 164K lignes avec 4+ époques dans un environnement GPU---le chemin le plus direct vers une modération texte de qualité production.
+  \item Jeu d'évaluation image étiqueté pour les cinq catégories, mesure des performances zéro-shot et calibrage des seuils de routage.
+  \item Apprentissage actif sélectionnant les images les plus incertaines pour la revue humaine, accélérant l'accumulation de données pour la sonde linéaire.
+  \item Remplacement ou complément du jeu SMS par des jeux spam plus grands et mieux adaptés au domaine (Enron Spam, SpamAssassin).
+  \item Entraînement accéléré GPU (CUDA/MPS) pour itérer vite et exploiter le jeu complet.
+\end{enumerate}
+
+\textbf{Priorité moyenne} :
+\begin{enumerate}[nosep]
+  \item Modération multilingue via BERT multilingue ou XLM-RoBERTa.
+  \item Calibration des probabilités (temperature scaling, Platt scaling) pour un choix de seuils fondé sur les taux de faux positifs/négatifs souhaités.
+  \item Jeux dédiés au discours haineux (HateXplain, Implicit Hate Speech Corpus) pour détecter la haine implicite et codée.
+  \item Routage sensible aux coûts, pondérant la décision par le coût relatif des faux positifs et faux négatifs par catégorie.
+  \item Finalisation du middleware d'authentification JWT.
+\end{enumerate}
+
+\textbf{Priorité basse} :
+\begin{enumerate}[nosep]
+  \item Modération vidéo par échantillonnage d'images clés appliquant le pipeline image.
+  \item Robustesse adversaire du modèle texte (substitutions de caractères, astuces Unicode, paraphrases).
+  \item Distillation du modèle BERT vers un modèle plus petit et rapide pour l'embarqué ou le haut débit.
+  \item Infrastructure de tests A/B de versions de modèles et configurations de routage.
+  \item Confidentialité différentielle pour protéger les exemples d'entraînement individuels.
+\end{enumerate}
+
+\section{Considérations éthiques}
+
+\begin{itemize}[nosep]
+  \item \textbf{Biais des données} : le jeu Jigsaw présente des biais connus, dont la sur-signalisation de l'anglais afro-américain ; le système actuel hérite de ces biais.
+  \item \textbf{Transparence} : le système fournit des motifs de routage lisibles, mais les décisions du modèle sous-jacent ne sont pas interprétables par nature.
+  \item \textbf{Bien-être des modérateurs} : les relecteurs humains sont exposés à des contenus potentiellement nuisibles ; avertissements de contenu et politiques de rotation sont nécessaires.
+  \item \textbf{Risque de sur-censure} : la faible précision toxique suggère un risque de censure excessive de contenus légitimes, particulièrement de communautés marginalisées.
+\end{itemize}

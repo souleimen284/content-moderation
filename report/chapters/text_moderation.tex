@@ -1,0 +1,72 @@
+% =============================================================================
+% Chapitre 5 : Modération de texte
+% =============================================================================
+\chapter{Modération de texte}
+\label{ch:text_moderation}
+
+Ce chapitre détaille le composant de modération de texte : architecture du modèle, procédure d'entraînement, construction des jeux de données et pipeline d'inférence.
+
+\section{Architecture du modèle}
+
+Le modèle utilise un encodeur BERT affiné~\cite{devlin2019bert} avec une tête de classification multi-label. L'encodeur de base est \texttt{bert-base-uncased} (12 couches de transformers, 110 millions de paramètres) ; l'état caché final du token \texttt{[CLS]}, $h \in \mathbb{R}^{768}$, sert de représentation agrégée de la séquence. Une seule couche linéaire projette ces 768 dimensions vers 3 sorties, chacune munie d'une activation sigmoïde indépendante :
+
+\begin{equation}
+p_k = \sigma(z_k) = \frac{1}{1 + e^{-z_k}}, \quad k \in \{0, 1, 2\}
+\end{equation}
+
+Contrairement à la classification multi-classe (softmax), les sigmoïdes indépendantes permettent d'attribuer une probabilité élevée à plusieurs étiquettes simultanément---un texte peut être à la fois « toxique » et « haine ». Les trois catégories sont : \texttt{toxic} (insultes, langage sévère, contenu abusif), \texttt{spam} (hameçonnage, arnaques, contenu commercial non sollicité) et \texttt{hate} (attaques identitaires, menaces, discrimination).
+
+\section{Construction du jeu de données}
+
+Le jeu d'entraînement unifié est construit par \texttt{scripts/build\_text\_dataset.py} à partir de deux sources hétérogènes.
+
+\textbf{Source A : Jigsaw Toxicity} (\texttt{data/toxic\_hate.csv}, $\sim$160K lignes) : commentaires Wikipédia multi-annotés~\cite{dbpedia2014}. Les colonnes originales sont remappées sur notre schéma à trois étiquettes : \texttt{toxic} $= \max(\text{toxic}, \text{severe\_toxic}, \text{insult})$ ; \texttt{hate} $= \max(\text{identity\_hate}, \text{threat})$ ; \texttt{spam} $= -1$ (inconnu).
+
+\textbf{Source B : SMS Spam Collection} (\texttt{data/spam.csv}, $\sim$5,5K lignes) : messages SMS étiquetés spam ou ham~\cite{almeida2011bag}. Remappage : \texttt{spam} $= 1$ si « spam », $0$ si « ham » ; \texttt{toxic} $= -1$ ; \texttt{hate} $= -1$.
+
+Le \textbf{masquage d'étiquettes} est le mécanisme clé permettant l'entraînement sur ces sources hétérogènes : la valeur sentinelle $-1$ marque les étiquettes inconnues, et la perte personnalisée (section~\ref{sec:text_loss}) les exclut du calcul afin que le modèle n'apprenne pas de faux négatifs à partir d'étiquettes manquantes. Le jeu unifié est ensuite partitionné en entraînement (70~\%), validation (15~\%) et test (15~\%) par échantillonnage stratifié lorsque possible, les étiquettes inconnues étant exclues de la stratification.
+
+\section{Fonction de perte}
+\label{sec:text_loss}
+
+L'entraînement utilise une BCE masquée avec pondération positive par étiquette, implémentée dans la classe \texttt{MultiLabelMaskedBCETrainer} :
+
+\begin{enumerate}[nosep]
+  \item Calculer les logits $z_{ik}$ pour chaque échantillon $i$ et étiquette $k$.
+  \item Dériver le masque $m_{ik} = \mathbb{1}[y_{ik} \geq 0]$ et remplacer les étiquettes inconnues par 0 : $\hat{y}_{ik} = \max(y_{ik}, 0)$.
+  \item Calculer la perte par élément $\ell_{ik} = w_k \cdot \hat{y}_{ik} \cdot \log \sigma(z_{ik}) + (1 - \hat{y}_{ik}) \cdot \log (1 - \sigma(z_{ik}))$.
+  \item Appliquer le masque et normaliser : $\mathcal{L} = \frac{\sum_{i,k} m_{ik} \cdot \ell_{ik}}{\sum_{i,k} m_{ik}}$.
+\end{enumerate}
+
+Le poids positif $w_k = n_k^{-} / n_k^{+}$ corrige le déséquilibre de classes en surpondérant la classe minoritaire (positive) de chaque étiquette.
+
+\section{Configuration d'entraînement}
+
+\begin{table}[H]
+\centering
+\caption{Configuration d'entraînement du modèle de texte.}
+\label{tab:text_training_config}
+\begin{tabular}{ll}
+\toprule
+\textbf{Paramètre} & \textbf{Valeur} \\
+\midrule
+Modèle de base & \texttt{bert-base-uncased} (110M paramètres) \\
+Longueur de séquence max & 256 tokens \\
+Taille de lot & 16 (configurable) \\
+Taux d'apprentissage (encodeur) & $2 \times 10^{-5}$ \\
+Taux d'apprentissage (tête) & $6 \times 10^{-5}$ (boost 3$\times$) \\
+Optimiseur & AdamW, weight decay 0,01 \\
+Warmup & ratio 0,06 \\
+Époques & 4 (early stopping, patience 2--3) \\
+Métrique d'évaluation & F1 macro \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La tête de classification reçoit un taux d'apprentissage 3$\times$ supérieur à celui de l'encodeur, suivant la pratique établie par Howard et Ruder~\cite{howard2018ulmfit} : la tête spécifique à la tâche s'adapte rapidement pendant que l'encodeur apprend des représentations plus conservatrices.
+
+\section{Pipeline d'inférence et métriques}
+
+À l'inférence, la méthode \texttt{TextModerationModel.predict()} tokenise les textes (WordPiece, padding dynamique), passe les identifiants par le modèle sous \texttt{torch.inference\_mode()}, applique la sigmoïde, détermine l'indicateur \texttt{predicted} de chaque étiquette avec un seuil configurable (défaut 0,70), puis retourne l'étiquette principale, le score principal et la liste des étiquettes prédites. Ces sorties alimentent ensuite le routeur de confiance (chapitre~\ref{ch:architecture}).
+
+Chaque étiquette est évaluée indépendamment : \textbf{précision} $\text{TP}/(\text{TP}+\text{FP})$, \textbf{rappel} $\text{TP}/(\text{TP}+\text{FN})$, \textbf{F1} (moyenne harmonique) et \textbf{PR-AUC} calculé à partir des probabilités sigmoïdes. Des moyennes macro (pondération égale des étiquettes) et micro (pondération égale des échantillons) agrègent ces métriques.

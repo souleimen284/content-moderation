@@ -1,0 +1,98 @@
+% =============================================================================
+% Chapitre 3 : Analyse des besoins
+% =============================================================================
+\chapter{Analyse des besoins}
+\label{ch:requirements}
+
+Ce chapitre présente les exigences fonctionnelles et non fonctionnelles qui ont guidé la conception du pipeline de modération, dérivées des besoins opérationnels d'un système de qualité production.
+
+\section{Exigences fonctionnelles}
+
+\subsection{Modération de texte}
+\begin{enumerate}[nosep, label=FR-T\arabic*]
+  \item Classer les textes en trois catégories indépendantes : \emph{toxique}, \emph{spam}, \emph{haine}.
+  \item Produire pour chaque catégorie un score de probabilité indépendant $s_k \in [0, 1]$ (sigmoïde).
+  \item S'appuyer sur un encodeur BERT affiné (\texttt{bert-base-uncased}) avec perte masquée pour données partiellement étiquetées.
+  \item Gérer les textes jusqu'à 256 tokens (configurable).
+\end{enumerate}
+
+\subsection{Modération d'images}
+\begin{enumerate}[nosep, label=FR-I\arabic*]
+  \item Classer les images en cinq catégories : \emph{nsfw}, \emph{violence}, \emph{weapons}, \emph{hate\_symbols}, \emph{graphic\_content}.
+  \item Supporter la classification zéro-shot par CLIP avec ensembliste de prompts.
+  \item Supporter la détection NudeNet comme signal principal ou secondaire, et un mode ensemble combinant les deux.
+  \item Produire une décision de routage à trois voies : SAFE, REVIEW ou NSFW.
+\end{enumerate}
+
+\subsection{Routage par confiance}
+\begin{enumerate}[nosep, label=FR-R\arabic*]
+  \item Implémenter une politique à trois niveaux : résolution automatique, file des modérateurs, cas incertains.
+  \item Rendre les seuils (\texttt{auto\_decision\_threshold}, \texttt{queue\_threshold}) configurables par variables d'environnement.
+  \item Approuver automatiquement tout contenu sans catégorie signalée, quelle que soit la confiance brute.
+  \item Router les contenus combinés (texte + image) selon une politique « le plus sévère gagne ».
+\end{enumerate}
+
+\subsection{Revue humaine et réentraînement}
+\begin{enumerate}[nosep, label=FR-H\arabic*]
+  \item Maintenir une file de modération des contenus à examiner.
+  \item Permettre aux modérateurs de soumettre des décisions (approuver/rejeter/escalader) avec notes et étiquettes corrigées optionnelles.
+  \item Enregistrer tout changement d'état dans un journal d'audit append-only.
+  \item Réentraîner automatiquement les modèles chaque semaine en fusionnant les décisions validées, et ne promouvoir un nouveau checkpoint que s'il améliore le F1 macro.
+\end{enumerate}
+
+\subsection{API et interfaces}
+\begin{enumerate}[nosep, label=FR-A\arabic*]
+  \item Exposer une API REST sous \texttt{/api/v1} pour la modération de texte, d'image et de contenu combiné.
+  \item Fournir des points de terminaison de santé (\texttt{/health}) et de métriques (\texttt{/metrics}).
+  \item Offrir un frontend React de test interactif et un tableau de bord Streamlit pour l'analytique opérationnelle.
+\end{enumerate}
+
+\section{Exigences non fonctionnelles}
+
+\begin{table}[H]
+\centering
+\caption{Exigences non fonctionnelles.}
+\label{tab:nfr}
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{ID} & \textbf{Exigence} & \textbf{Description} \\
+\midrule
+NFR-1 & Modularité & Chaque modèle, service et endpoint testable indépendamment. \\
+NFR-2 & Configurabilité & Seuils, noms de modèles et périphériques configurables sans modification de code. \\
+NFR-3 & Portabilité & Fonctionnement sur CPU (défaut) et GPU (CUDA/MPS). \\
+NFR-4 & Déployabilité & Pile complète déployable par Docker Compose en une commande. \\
+NFR-5 & Auditabilité & Toute décision traçable via le journal d'audit jusqu'à la version du modèle. \\
+NFR-6 & Testabilité & Suite pytest couvrant le routage, la base de données et l'API. \\
+NFR-7 & Conteneurisation & Chaque service dans son conteneur Docker avec vérifications de santé. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Cas d'utilisation}
+
+\begin{table}[H]
+\centering
+\caption{Cas d'utilisation principaux.}
+\label{tab:use_cases}
+\begin{tabularx}{\textwidth}{llX}
+\toprule
+\textbf{ID} & \textbf{Acteur} & \textbf{Description} \\
+\midrule
+UC-1 & Client API & Soumettre un texte ; recevoir prédiction, décision de routage et ID. \\
+UC-2 & Client API & Téléverser une image ; recevoir classification et décision. \\
+UC-3 & Client API & Soumettre un contenu combiné texte + image. \\
+UC-4 & Modérateur & Consulter la file et examiner les éléments en attente. \\
+UC-5 & Modérateur & Soumettre une décision avec étiquettes corrigées optionnelles. \\
+UC-6 & Admin & Consulter les métriques via tableau de bord ou API. \\
+UC-7 & Système & Exécuter automatiquement le réentraînement hebdomadaire. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Contraintes}
+
+\begin{itemize}[nosep]
+  \item \textbf{Calcul} : l'entraînement doit rester réalisable sur CPU, motivant l'échantillonnage de sous-ensembles et le gel de l'encodeur.
+  \item \textbf{Données} : le jeu spam (SMS Spam Collection, $\sim$5\,500 lignes) est bien plus petit que le jeu de toxicité ($\sim$160K lignes), exigeant masquage d'étiquettes et équilibrage des poids.
+  \item \textbf{Déploiement} : le système doit être autonome, déployable sans services externes au-delà d'un runtime Docker.
+\end{itemize}

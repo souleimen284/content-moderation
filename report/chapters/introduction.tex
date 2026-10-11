@@ -1,0 +1,46 @@
+% =============================================================================
+% Chapitre 1 : Introduction
+% =============================================================================
+\chapter{Introduction}
+\label{ch:introduction}
+
+La croissance exponentielle des contenus générés par les utilisateurs a fait de la modération de contenu une exigence opérationnelle critique. Réseaux sociaux, places de marché, forums et services de messagerie doivent identifier et retirer les contenus nuisibles---discours haineux, spam, matériel sexuellement explicite, images violentes---tout en perturbant au minimum la communication légitime. Les rapports du secteur estiment que les plateformes dépassant un million d'utilisateurs actifs quotidiens nécessitent des équipes de modération dédiées traitant des dizaines de milliers d'éléments par jour, avec des coûts croissant approximativement de manière linéaire avec le volume~\cite{gillespie2018curation}.
+
+La modération purement manuelle n'est pas soutenable à cette échelle : lente, coûteuse, et exposant les modérateurs à des contenus psychologiquement nocifs. À l'inverse, les systèmes entièrement automatiques, bien que rapides, peinent face à l'ambiguïté inhérente au langage naturel et aux images. Un propos inflammatoire dans un contexte culturel peut être bénin dans un autre ; une photographie artistique peut être signalée comme NSFW par un classifieur naïf. Le défi n'est donc pas seulement de construire un classifieur, mais de concevoir un \emph{pipeline intégré} combinant apprentissage automatique et jugement humain de manière évolutive, auditable et continuellement améliorée.
+
+Ce rapport présente la conception, la réalisation et l'évaluation d'un tel système : le \textbf{Pipeline de Modération de Contenu}, une plateforme de modération par IA, de qualité production, traitant à la fois textes et images. Les innovations principales sont :
+
+\begin{itemize}[nosep]
+  \item \textbf{Classification multi-label de texte} par un modèle BERT affiné évaluant simultanément trois catégories indépendantes (toxique, spam, haine), avec une perte d'entropie croisée binaire masquée gérant des données hétérogènes aux étiquettes incomplètes.
+  \item \textbf{Classification d'images zéro-shot} par CLIP avec ensembliste de prompts, produisant un score sur cinq catégories sans données d'entraînement étiquetées au déploiement initial.
+  \item \textbf{Routage à trois niveaux par confiance} répartissant les prédictions entre résolution automatique, file des modérateurs et cas incertains, avec seuils configurables.
+  \item \textbf{Revue humain-dans-la-boucle} adossée à une base PostgreSQL avec journal d'audit complet, permettant aux modérateurs de corriger les cas incertains.
+  \item \textbf{Réentraînement hebdomadaire automatique} fusionnant les décisions des modérateurs dans les données d'entraînement et ne promouvant que les checkpoints qui améliorent mesurablement les performances.
+\end{itemize}
+
+\section{Problématique}
+
+Étant donné un contenu utilisateur $x$ (texte, image, ou les deux), le système doit :
+
+\begin{enumerate}[nosep]
+  \item Produire un vecteur de scores de confiance $\mathbf{s} = (s_1, \ldots, s_K)$ sur $K$ catégories de modération, chaque $s_k \in [0, 1]$ représentant la croyance du modèle que la catégorie $k$ est présente.
+  \item Associer ces scores à une action de modération $a \in \{\texttt{auto\_approve},\; \texttt{auto\_reject},\; \texttt{moderator\_queue},\; \texttt{manual\_review}\}$ selon une politique configurable.
+  \item Enregistrer la chaîne de décision complète---prédiction, routage, revue humaine éventuelle---dans une base auditable.
+  \item Réinjecter les corrections humaines dans les données d'entraînement pour améliorer le système au fil du temps.
+\end{enumerate}
+
+\section{Objectifs du projet}
+
+Les objectifs principaux sont :
+
+\begin{enumerate}[nosep]
+  \item Concevoir et réaliser un pipeline de modération multi-modal (texte et images).
+  \item Mettre en \oe uvre un routage par confiance équilibrant automatisation et supervision humaine.
+  \item Construire une pile de production complète : API, frontend, tableau de bord, infrastructure de déploiement.
+  \item Établir une boucle d'apprentissage continu par réentraînement automatique sur données validées humainement.
+  \item Évaluer le système sur des jeux de données réels et identifier les limites.
+\end{enumerate}
+
+\section{Organisation du rapport}
+
+Le chapitre~\ref{ch:state_of_art} présente l'état de l'art. Le chapitre~\ref{ch:requirements} expose l'analyse des besoins. Le chapitre~\ref{ch:architecture} décrit l'architecture globale. Les chapitres~\ref{ch:text_moderation} et~\ref{ch:image_moderation} détaillent les composants de modération du texte et des images. Le chapitre~\ref{ch:implementation} couvre les choix d'implémentation. Le chapitre~\ref{ch:experiments} décrit le protocole expérimental, le chapitre~\ref{ch:results} présente les résultats, le chapitre~\ref{ch:limitations} discute les limites et perspectives, et le chapitre~\ref{ch:conclusion} conclut.

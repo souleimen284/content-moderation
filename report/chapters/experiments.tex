@@ -1,0 +1,68 @@
+% =============================================================================
+% Chapitre 8 : Expérimentations et évaluation
+% =============================================================================
+\chapter{Expérimentations et évaluation}
+\label{ch:experiments}
+
+Ce chapitre décrit le dispositif expérimental, la méthodologie d'évaluation et les procédures d'entraînement utilisées pour évaluer le pipeline.
+
+\section{Environnement expérimental}
+
+L'entraînement et l'évaluation ont été menés sur une machine de développement Windows, en entraînement CPU uniquement (sans accélération GPU), avec PyTorch 2.5.1 et Transformers 4.47.1, le périphérique de calcul \texttt{cpu} étant configurable via la variable d'environnement \texttt{DEVICE}. Cette contrainte CPU impacte fortement les temps d'entraînement : l'affinage de BERT sur les 164K lignes complètes à 16 échantillons par lot requiert environ 22 secondes par lot, soit des entraînements de plusieurs heures. Un entraînement sur sous-ensemble a donc été utilisé pour itérer rapidement.
+
+\section{Expériences sur le modèle de texte}
+
+\subsection{Expérience 1 : entraînement sur sous-ensemble (validation du pipeline)}
+
+Un entraînement minimal a été mené sur un sous-ensemble de 431 lignes (\texttt{text\_moderation\_train\_subset.csv}, 6\,138 lignes au total) pour valider le pipeline de bout en bout : 4\,296/921/921 lignes d'entraînement/validation/test, 2 époques, lots de 32, taux d'apprentissage $3 \times 10^{-5}$, modèle de base \texttt{bert-base-uncased}. Les résultats (tableau~\ref{tab:subset_results}) montrent un rappel toxique élevé (0,83) mais une précision faible (0,32), un rappel haine faible (0,22) à précision modérée (0,50), et un F1 spam nul---explicable par la présence d'un seul échantillon spam dans l'ensemble d'évaluation, insuffisant face aux 94 exemples positifs du lot d'entraînement.
+
+\begin{table}[H]
+\centering
+\caption{Résultats d'entraînement sur sous-ensemble après 2 époques.}
+\label{tab:subset_results}
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Étiquette} & \textbf{Précision} & \textbf{Rappel} & \textbf{F1} \\
+\midrule
+Toxique & 0,32 & 0,83 & 0,46 \\
+Haine & 0,50 & 0,22 & 0,31 \\
+Spam & 0,00 & 0,00 & 0,00 \\
+\midrule
+Moyenne macro & --- & --- & 0,26 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ces résultats proviennent d'un entraînement minimal (sous-ensemble réduit, 2 époques, CPU) ; un entraînement complet sur les 164K lignes avec 4+ époques devrait donner des résultats nettement meilleurs.
+
+\subsection{Expérience 2 : entraînement sur échantillon (validation de l'architecture)}
+
+Une validation antérieure sur un échantillon de 20 lignes a vérifié l'architecture à 5 étiquettes avant la transition vers 3. Le pipeline a fonctionné correctement, mais le jeu était trop petit pour une classification significative : le modèle a convergé vers la prédiction « toxique » pour toutes les entrées (rappel de 100~\% sur cette étiquette, F1 de 0,50, toutes les autres étiquettes à zéro). Ce constat a motivé la construction du jeu unifié de 164K lignes.
+
+\section{Modèle image}
+
+Le modèle d'image n'a pas été entraîné sur données étiquetées durant ce projet : il fonctionne en zéro-shot avec les poids pré-entraînés de CLIP, ce qui est un choix délibéré offrant une performance de base raisonnable sur les cinq catégories sans données labellisées. La voie d'entraînement par sonde linéaire (\texttt{scripts/train\_image\_model.py}) est implémentée et testée, mais pas encore exécutée car elle requiert d'abord des données image validées par les modérateurs.
+
+\section{Méthodologie d'évaluation}
+
+L'évaluation utilise les métriques standard de classification multi-label, calculées indépendamment par étiquette : précision, rappel et F1 (équations~\ref{eq:precision}--\ref{eq:f1}), puis agrégées en moyennes macro et micro (équations~\ref{eq:macro_f1}--\ref{eq:micro_f1}). Le PR-AUC est calculé à partir des probabilités sigmoïdes brutes de chaque étiquette.
+
+\begin{align}
+\text{Précision}_k &= \frac{\text{TP}_k}{\text{TP}_k + \text{FP}_k} \label{eq:precision} \\
+\text{Rappel}_k &= \frac{\text{TP}_k}{\text{TP}_k + \text{FN}_k} \label{eq:recall} \\
+\text{F1}_k &= 2 \cdot \frac{\text{Précision}_k \cdot \text{Rappel}_k}{\text{Précision}_k + \text{Rappel}_k} \label{eq:f1} \\
+\text{F1}_{\text{macro}} &= \frac{1}{K} \sum_{k=1}^{K} \text{F1}_k \label{eq:macro_f1} \\
+\text{F1}_{\text{micro}} &= \frac{\sum_{k=1}^{K} \text{TP}_k}{\sum_{k=1}^{K} (\text{TP}_k + \text{FP}_k + \text{FN}_k)} \label{eq:micro_f1}
+\end{align}
+
+Pour la sélection de modèle, le \texttt{Trainer} Hugging Face utilise \texttt{f1\_macro} comme métrique de meilleur modèle, avec arrêt précoce lorsque la F1 macro de validation ne s'améliore plus pendant \texttt{early\_stopping\_patience} époques consécutives. Après sauvegarde, la fonction \texttt{\_verify\_saved\_checkpoint()} vérifie l'existence de \texttt{model.safetensors}, le nombre correct de sorties de la tête de classification et la cohérence des clés du checkpoint.
+
+\section{Évaluation du réentraînement}
+
+Le pipeline de réentraînement (\texttt{retrain.py}) évalue chaque nouveau candidat contre le modèle actif via \texttt{promote\_if\_better}, sur la métrique \texttt{f1\_macro} : la promotion n'a lieu que si
+
+\begin{equation}
+\text{F1}_{\text{macro}}^{\text{candidat}} > \text{F1}_{\text{macro}}^{\text{actif}}
+\end{equation}
+
+Sinon, le modèle courant reste actif et la tentative est journalisée sans promotion, ce qui prévient toute régression du modèle.

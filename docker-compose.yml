@@ -1,0 +1,154 @@
+x-app-env: &app-env
+  APP_ENV: ${APP_ENV:-production}
+  DEBUG: ${DEBUG:-false}
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set in .env}
+  DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-moderation_user}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}@postgres:5432/${POSTGRES_DB:-content_moderation}
+  TEXT_MODEL_NAME: ${TEXT_MODEL_NAME:-bert-base-uncased}
+  TEXT_MODEL_CHECKPOINT_DIR: /app/models/text_moderation
+  IMAGE_MODEL_NAME: ${IMAGE_MODEL_NAME:-ViT-B-32}
+  IMAGE_MODEL_PRETRAINED: ${IMAGE_MODEL_PRETRAINED:-openai}
+  IMAGE_MODEL_PROVIDER: ${IMAGE_MODEL_PROVIDER:-ensemble}
+  IMAGE_SAFE_THRESHOLD: ${IMAGE_SAFE_THRESHOLD:-0.35}
+  IMAGE_NSFW_THRESHOLD: ${IMAGE_NSFW_THRESHOLD:-0.75}
+  IMAGE_MODEL_CHECKPOINT_DIR: /app/models/image_moderation
+  DEVICE: ${DEVICE:-cpu}
+  AUTO_DECISION_THRESHOLD: ${AUTO_DECISION_THRESHOLD:-0.95}
+  QUEUE_THRESHOLD: ${QUEUE_THRESHOLD:-0.70}
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-content-moderation}
+  RETRAIN_SCHEDULE_CRON: ${RETRAIN_SCHEDULE_CRON:-0 3 * * 1}
+  RETRAIN_MIN_NEW_SAMPLES: ${RETRAIN_MIN_NEW_SAMPLES:-100}
+  RETRAIN_DATA_DIR: /app/data/retraining
+  UPLOAD_DIR: /app/data/uploads
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: ${LOG_JSON:-true}
+  LOG_DIR: /app/logs
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: moderation-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-moderation_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-content_moderation}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moderation_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [moderation-net]
+
+  mlflow:
+    image: python:3.12-slim
+    container_name: moderation-mlflow
+    restart: unless-stopped
+    command: sh -c "pip install --no-cache-dir mlflow==2.19.0 && mlflow server --backend-store-uri sqlite:////mlartifacts/mlflow.db --default-artifact-root /mlartifacts --host 0.0.0.0 --port 5000"
+    volumes:
+      - mlflow_artifacts:/mlartifacts
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [moderation-net]
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+      args:
+        TEXT_MODEL_NAME: ${TEXT_MODEL_NAME:-bert-base-uncased}
+        IMAGE_MODEL_NAME: ${IMAGE_MODEL_NAME:-ViT-B-32}
+        IMAGE_MODEL_PRETRAINED: ${IMAGE_MODEL_PRETRAINED:-openai}
+        IMAGE_MODEL_PROVIDER: ${IMAGE_MODEL_PROVIDER:-ensemble}
+    container_name: moderation-api
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    volumes:
+      - models_data:/app/models
+      - app_data:/app/data
+      - app_logs:/app/logs
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks: [moderation-net]
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: moderation-dashboard
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    volumes:
+      - models_data:/app/models
+      - app_data:/app/data
+      - app_logs:/app/logs
+    ports:
+      - "${DASHBOARD_PORT:-8501}:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    networks: [moderation-net]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        # Always use the relative path so requests go through the nginx proxy.
+        # The .env value (http://localhost:8000/api/v1) is for local dev only.
+        VITE_API_BASE_URL: /api/v1
+    container_name: moderation-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [moderation-net]
+
+  retrain-scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.retrain
+    container_name: moderation-retrain-scheduler
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      RETRAIN_ON_STARTUP: ${RETRAIN_ON_STARTUP:-true}
+    volumes:
+      - models_data:/app/models
+      - app_data:/app/data
+      - app_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    networks: [moderation-net]
+
+networks:
+  moderation-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
+  models_data:
+  app_data:
+  app_logs:

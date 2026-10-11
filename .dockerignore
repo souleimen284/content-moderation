@@ -1,0 +1,42 @@
+# Version control / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Large/generated artifacts (mounted as volumes at runtime instead)
+models/*
+!models/.gitkeep
+data/*
+!data/.gitkeep
+!data/sample_text_moderation.csv
+logs/*
+!logs/.gitkeep
+mlruns/
+mlartifacts/
+docker/postgres_data/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+tests/
+
+# Docs (not needed inside the image)
+*.md
+!README.md
