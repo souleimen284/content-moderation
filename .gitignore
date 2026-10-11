@@ -60,6 +60,7 @@ report/*.lot
 report/*.out
 report/*.pdf
 report/*.toc
+report/*.txt
 
 # Local notebooks and editor metadata
 .ipynb_checkpoints/
